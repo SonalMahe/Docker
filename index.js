@@ -1,26 +1,86 @@
-import express from 'express';
-import dotenv from 'dotenv';
-import { Pool } from 'pg';
-import {z} from 'zod';
+import express from "express";
+import dotenv from "dotenv";
+import { Pool } from "pg";
+import { z } from "zod";
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-const pool = new Pool({
-    user: process.env.DB_USER,
-    host: process.env.DB_HOST,
-    database: process.env.DB_DATABASE,
-    password: process.env.DB_PASSWORD,
-    port: process.env.DB_PORT,
+//Zod schema for environment variables validation-
+const envSchema = z.object({
+    DB_USER: z.string(),
+    DB_HOST: z.string(),
+    DB_DATABASE: z.string(),
+    DB_PASSWORD: z.string(),
 });
+
+const validatedEnv = envSchema.safeParse(process.env);
+if (!validatedEnv.success) {
+    console.error(
+        "Environment variable validation failed:",
+        z.treeifyError(validatedEnv.error),
+    );
+    process.exit(1);
+}
+
+const { DB_USER, DB_HOST, DB_DATABASE, DB_PASSWORD } = validatedEnv.data;
+
+const pool = new Pool({
+    user: DB_USER,
+    host: DB_HOST,
+    database: DB_DATABASE,
+    password: DB_PASSWORD,
+});
+
+
+
 
 app.use(express.json());
 app.get("/", (req, res) => {
     res.send("Welcome to this Game Studio API & Node.js and PostgreSQL");
 });
 
+
+
+//  Endpoint: POST /players with Zod Validation 
+// Zod schema
+const playerSchema = z.object({
+    name: z
+        .string()
+        .min(2, { message: "Your name must be at least 2 characters long" })
+        .max(20, { message: "Your name must be at most 20 characters long" }),
+    join_date: z.coerce.date().optional() // converts string to Date
+});
+
+app.post("/players", async (req, res) => {
+    // Validate input
+    const validation = playerSchema.safeParse(req.body);
+
+    if (!validation.success) {
+        return res.status(400).json({
+            error: validation.error.format() 
+        });
+    }
+
+    // Extract validated data
+    const { name, join_date } = validation.data;
+
+    try {
+        // Insert into database
+        const dbResult = await pool.query(
+            "INSERT INTO players (name, join_date) VALUES ($1, $2) RETURNING *",
+            [name, join_date || new Date()] 
+        );
+
+        res.status(201).json(dbResult.rows[0]);
+
+    } catch (error) {
+        console.error("Error inserting data into database:", error);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 
 //  Task 1: List All Players and Their Scores 
 // Endpoint: GET /players-scores 
@@ -30,7 +90,7 @@ app.get("/", (req, res) => {
 // Game title 
 // Score 
 
-app.get('/players-scores', async (req, res) => {
+app.get("/players-scores", async (req, res) => {
     try {
         const result = await pool.query(`
       SELECT P.name, S.score , G.title 
@@ -41,9 +101,12 @@ app.get('/players-scores', async (req, res) => {
     `);
         res.json(result.rows);
     }
-    catch (error) {
-        console.error('Error fetching data from database:', error);
-        res.status(500).json({ error: 'Internal  Server Error' });
+    catch (err) {
+        if (err instanceof Error) {
+            res.status(500).send(err.message);
+        } else {
+            res.status(500).send("Unknown error");
+        }
     }
 });
 
@@ -54,7 +117,7 @@ app.get('/players-scores', async (req, res) => {
 // Description: 
 // Write a route that returns the top 3 players with the highest total scores across all games. Sort them in descending order.
 
-app.get('/top-players', async (req, res) => {
+app.get("/top-players", async (req, res) => {
     try {
         const result = await pool.query(`
      SELECT p.name, SUM(s.score) AS total_score
@@ -66,9 +129,9 @@ app.get('/top-players', async (req, res) => {
         `);
         res.json(result.rows);
     }
-    catch (error) {
-        console.error('Error fetching data from database:', error);
-        res.status(500).json({ error: 'Internal  Server Error' });
+    catch (err) {
+        console.error("Error fetching data from database:", err);
+        res.status(500).json({ error: "Internal  Server Error" });
     }
 });
 
@@ -78,7 +141,7 @@ app.get('/top-players', async (req, res) => {
 // Description: 
 // Write a route that lists all players who haven’t played any games yet. 
 
-app.get('/inactive-players', async (req, res) => {
+app.get("/inactive-players", async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT p.id, p.name
@@ -89,8 +152,8 @@ app.get('/inactive-players', async (req, res) => {
         res.json(result.rows);
     }
     catch (error) {
-        console.error('Error fetching data from database:', error);
-        res.status(500).json({ error: 'Internal  Server Error' });
+        console.error("Error fetching data from database:", error);
+        res.status(500).json({ error: "Internal  Server Error" });
     }
 });
 
@@ -100,7 +163,7 @@ app.get('/inactive-players', async (req, res) => {
 // Description: 
 // Write a route that finds the most popular game genres based on the number of times they’ve been played. 
 
-app.get('/popular-genres', async (req, res) => {
+app.get("/popular-genres", async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT g.genre , count(g.genre) as Total
@@ -112,8 +175,8 @@ app.get('/popular-genres', async (req, res) => {
         res.json(result.rows);
     }
     catch (error) {
-        console.error('Error fetching data from database:', error);
-        res.status(500).json({ error: 'Internal  Server Error' });
+        console.error("Error fetching data from database:", error);
+        res.status(500).json({ error: "Internal  Server Error" });
     }
 });
 
@@ -124,7 +187,7 @@ app.get('/popular-genres', async (req, res) => {
 // Description: 
 // Write a route that lists all players who joined in the last 30 days. 
 
-app.get('/recent-players', async (req, res) => {
+app.get("/recent-players", async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT name, join_date AS DateJoined from players
@@ -133,8 +196,8 @@ app.get('/recent-players', async (req, res) => {
         res.json(result.rows);
     }
     catch (error) {
-        console.error('Error fetching data from database:', error);
-        res.status(500).json({ error: 'Internal  Server Error' });
+        console.error("Error fetching data from database:", error);
+        res.status(500).json({ error: "Internal  Server Error" });
     }
 });
 
@@ -145,7 +208,7 @@ app.get('/recent-players', async (req, res) => {
 // Description: 
 // Write a route that returns each player’s favorite game (the game they’ve played the most). 
 
-app.get('/favorite-games', async (req, res) => {
+app.get("/favorite-games", async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT p.name, g.title, COUNT(*) AS play_count
@@ -158,8 +221,8 @@ app.get('/favorite-games', async (req, res) => {
         res.json(result.rows);
     }
     catch (error) {
-        console.error('Error fetching data from database:', error);
-        res.status(500).json({ error: 'Internal  Server Error' });
+        console.error("Error fetching data from database:", error);
+        res.status(500).json({ error: "Internal  Server Error" });
     }
 });
 

@@ -2,5 +2,5 @@ const playerScores = "SELECT P.name, S.score , G.title from players P JOIN score
 
 
 module.exports = {
-    playerScores
+  playerScores
 };
