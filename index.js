@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import { Pool } from 'pg';
+import {z} from 'zod';
 
 dotenv.config();
 
